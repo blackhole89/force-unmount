@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# force-unmount.sh 1.0
+# force-unmount.sh 1.1
 # (C) 2016 Matvey Soloviev (blackhole89@gmail.com)
 #
 # Usage: sudo ./force-unmount.sh <mount point>
@@ -9,7 +9,7 @@
 # feet and move its working directory off as necessary, then attempts a
 # genuine forced unmounting of the volume.
 #
-# This will result in processes crashing left and right and otherwise
+# This may result in processes crashing left and right and otherwise
 # exhibiting undefined behaviour, so use at your own risk.
 
 # This program is free software: you can redistribute it and/or modify
@@ -41,13 +41,14 @@ fi
 
 # Find file handles pointing to subfolders of $2 owned by PID $1
 proc_files_in_prefix() {
-    local files=$(ls /proc/$1/fd)
+    local files=$(cd /proc/$1/fd;ls)
     if [[ $files ]]; then
         # Readlinking the whole list at once is faster than doing it one-by-one.
-        local links=$(cd /proc/$1/fd;readlink $files)
+        # Need to be careful to strip occasional (deleted) spam.
+        local links=$(cd /proc/$1/fd;readlink $files|sed -e 's/(deleted)//g')
         local files=($files)
         local links=($links)
-        for num in `seq 0 ${#files[@]}`; do
+        for num in `seq 0 $((${#files[@]}-1))`; do
             if [[ "${links[$num]}" == $2* ]]
             then
                 echo ${files[$num]}
@@ -63,15 +64,23 @@ build_gdb_commands() {
     then
         echo "call chdir(\"/\")"
     fi
-    # Close all file handles passed in.
-    sed -e 's/^/call close(/' - | sed -e 's/$/)/'
+    # Repoint all file handles passed in at /dev/null.
+    sed -e 's/^/call dup2($devnull,/' - | sed -e 's/$/)/'
 }
 
 # Disentangle PID $1 from volume $2
-handle_pid() { 
+handle_pid() {
     local cmds=$(proc_files_in_prefix $1 $2 2>/dev/null | build_gdb_commands $1 $2)
     if [[ $cmds ]]; then
-        (echo "set auto-solib-add off"; echo "attach $1"; echo $cmds) | gdb >/dev/null 2>/dev/null
+        (cat <<PREAMBLE
+set auto-solib-add off
+attach $1
+sharedlibrary libc
+set \$devnull = open("/dev/null",2,0)
+$cmds
+call close(\$devnull)
+PREAMBLE
+        ) | gdb >/dev/null 2>/dev/null
         #echo $1
     fi
 }
