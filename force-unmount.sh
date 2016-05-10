@@ -47,7 +47,8 @@ proc_files_in_prefix() {
         # Need to be careful to strip occasional (deleted) spam.
         local links=$(cd /proc/$1/fd;readlink $files|sed -e 's/(deleted)//g')
         local files=($files)
-        local links=($links)
+        # Links may contain spaces. Make sure we tokenise linewise.
+        IFS=$'\r\n' GLOBIGNORE='*' command eval 'local links=($links)'
         for num in `seq 0 $((${#files[@]}-1))`; do
             if [[ "${links[$num]}" == $2* ]]
             then
