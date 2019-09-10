@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# force-unmount.sh 1.1
-# (C) 2016 Matvey Soloviev (blackhole89@gmail.com)
+# force-unmount.sh 1.2
+# (C) 2016-2019 Matvey Soloviev (blackhole89@gmail.com)
 #
 # Usage: sudo ./force-unmount.sh <mount point>
 #
@@ -50,7 +50,7 @@ proc_files_in_prefix() {
         # Links may contain spaces. Make sure we tokenise linewise.
         IFS=$'\r\n' GLOBIGNORE='*' command eval 'local links=($links)'
         for num in `seq 0 $((${#files[@]}-1))`; do
-            if [[ "${links[$num]}" == $2* ]]
+            if [[ "${links[$num]}" == "$2"* ]]
             then
                 echo ${files[$num]}
             fi
@@ -61,25 +61,25 @@ proc_files_in_prefix() {
 # Build GDB commands for PID $1 to chdir out of volume $2 and close file handles listed in stdin
 build_gdb_commands() {
     # Move out of working directory on target if needed.
-    if [[ `readlink /proc/$1/cwd` == $2* ]]
+    if [[ `readlink /proc/$1/cwd` == "$2"* ]]
     then
-        echo "call chdir(\"/\")"
+        echo "call (int)chdir(\"/\")"
     fi
     # Repoint all file handles passed in at /dev/null.
-    sed -e 's/^/call dup2($devnull,/' - | sed -e 's/$/)/'
+    sed -e 's/^/call (int)dup2($devnull,/' - | sed -e 's/$/)/'
 }
 
 # Disentangle PID $1 from volume $2
 handle_pid() {
-    local cmds=$(proc_files_in_prefix $1 $2 2>/dev/null | build_gdb_commands $1 $2)
+    local cmds=$(proc_files_in_prefix $1 "$2" 2>/dev/null | build_gdb_commands $1 "$2")
     if [[ $cmds ]]; then
         (cat <<PREAMBLE
 set auto-solib-add off
 attach $1
 sharedlibrary libc
-set \$devnull = open("/dev/null",2,0)
+set \$devnull = (int)open("/dev/null",2,0)
 $cmds
-call close(\$devnull)
+call (int)close(\$devnull)
 PREAMBLE
         ) | gdb >/dev/null 2>/dev/null
         #echo $1
@@ -87,8 +87,8 @@ PREAMBLE
 }
 
 for proc in `ps -A -o pid | tail -n +2`; do
-    handle_pid $proc $1
+    handle_pid $proc "$1"
 done
 
-umount $1
+umount "$1"
 
